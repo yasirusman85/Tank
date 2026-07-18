@@ -36,8 +36,19 @@ class Tank:
         await self.starlette_app(scope, receive, send)
 
     # Delegation methods for standard Starlette features
+    def route(self, path: str, methods: Optional[List[str]] = None, name: Optional[str] = None):
+        """
+        Decorator to register a standard URL route/endpoint.
+        """
+        from typing import Callable
+        def decorator(func: Callable) -> Callable:
+            self.starlette_app.add_route(path, func, methods=methods, name=name)
+            return func
+        return decorator
+
     def add_route(self, path: str, route: BaseRoute, **kwargs):
         self.starlette_app.add_route(path, route, **kwargs)
+
 
     def add_websocket_route(self, path: str, route: BaseRoute, **kwargs):
         self.starlette_app.add_websocket_route(path, route, **kwargs)

@@ -87,3 +87,20 @@ def test_different_query_parameter_formats():
         # Find the tool call arguments
         tool_call_args = next(e["arguments"] for e in events if "arguments" in e and "name" in e and e["name"] == "add")
         assert tool_call_args == {"a": 10, "b": 20}
+
+
+def test_app_route_decorator():
+    """
+    Ensure the app.route decorator successfully registers a standard route.
+    """
+    from starlette.responses import PlainTextResponse
+    
+    @app.route("/hello")
+    async def hello(request):
+        return PlainTextResponse("Hello, world!")
+        
+    client = TestClient(app)
+    response = client.get("/hello")
+    assert response.status_code == 200
+    assert response.text == "Hello, world!"
+

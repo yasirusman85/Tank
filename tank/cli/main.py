@@ -24,8 +24,9 @@ from tank import Tank
 
 app = Tank()
 
-@app.starlette_app.route("/")
+@app.route("/")
 async def home(request):
+
     from starlette.responses import JSONResponse
     return JSONResponse({"status": "healthy", "framework": "Tank"})
 
