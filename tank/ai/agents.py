@@ -1,4 +1,5 @@
 import json
+import asyncio
 from typing import List, Dict, Any, AsyncGenerator, Union
 from pydantic import BaseModel
 from tank.ai.llm import LLM, LLMThoughtChunk, LLMTokenChunk, LLMToolCallChunk
@@ -142,19 +143,27 @@ class Agent:
                 
             await self.memory.add_message(session_id, assistant_msg)
             
-            # Execute all tool calls requested in this turn
+            # Yield all ToolCallSteps first
             for tc in tool_calls_to_run:
                 yield ToolCallStep(name=tc["name"], arguments=tc["arguments"], id=tc["id"])
                 
-                tool_obj = self._tools_map.get(tc["name"])
-                if tool_obj:
-                    try:
-                        result = await tool_obj(**tc["arguments"])
-                    except Exception as e:
-                        result = f"Error executing tool: {str(e)}"
-                else:
-                    result = f"Error: Tool '{tc['name']}' is not registered."
-                    
+            async def run_single_tool(tc_dict):
+                t_name = tc_dict["name"]
+                t_args = tc_dict["arguments"]
+                tool_obj = self._tools_map.get(t_name)
+                if not tool_obj:
+                    return f"Error: Tool '{t_name}' is not registered. Please retry with correct inputs."
+                try:
+                    return await tool_obj(**t_args)
+                except Exception as e:
+                    return f"Error: {str(e)} Please retry with correct inputs."
+
+            # Run all tools concurrently
+            tasks = [run_single_tool(tc) for tc in tool_calls_to_run]
+            results = await asyncio.gather(*tasks)
+
+            # Yield responses and append to memory
+            for tc, result in zip(tool_calls_to_run, results):
                 yield ToolResponseStep(name=tc["name"], result=result, id=tc["id"])
                 
                 # Append tool response to memory

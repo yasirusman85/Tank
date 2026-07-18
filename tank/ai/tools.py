@@ -2,11 +2,57 @@ import inspect
 from typing import Callable, Any, get_type_hints, Dict, Type
 from pydantic import create_model, BaseModel, Field
 
+def parse_docstring_params(doc: str) -> dict[str, str]:
+    """
+    Parses parameter descriptions from function docstrings.
+    Supports both Google-style (Args:) and Sphinx-style (:param name:).
+    """
+    if not doc:
+        return {}
+    params = {}
+    lines = doc.splitlines()
+    
+    google_mode = False
+    
+    for line in lines:
+        stripped = line.strip()
+        
+        # Check for Google style start
+        if stripped.lower() in ("args:", "arguments:", "parameters:"):
+            google_mode = True
+            continue
+        # Stop Google mode if we hit another section header in Google style (e.g. Returns:)
+        elif google_mode and stripped.endswith(":") and not stripped.startswith("-"):
+            if stripped.lower() in ("returns:", "yields:", "raises:", "examples:", "note:", "notes:"):
+                google_mode = False
+                
+        if google_mode:
+            # Matches: name (type): description OR name: description
+            import re
+            m = re.match(r"^\s*([a-zA-Z_][a-zA-Z0-9_]*)\s*(?:\([^)]+\))?\s*:\s*(.*)$", line)
+            if m:
+                pname = m.group(1)
+                pdesc = m.group(2).strip()
+                params[pname] = pdesc
+        else:
+            # Sphinx style: :param name: description
+            import re
+            m = re.match(r"^\s*:(?:param|parameter)\s+([a-zA-Z_][a-zA-Z0-9_]*)\s*:\s*(.*)$", line)
+            if m:
+                pname = m.group(1)
+                pdesc = m.group(2).strip()
+                params[pname] = pdesc
+                
+    return params
+
 class Tool:
     def __init__(self, func: Callable[..., Any], name: str | None = None, description: str | None = None):
         self.func = func
         self.name = name or func.__name__
         self.description = description or func.__doc__ or ""
+        
+        # Parse parameter descriptions from the docstring
+        param_descriptions = parse_docstring_params(self.description)
         
         # Analyze parameters and create a dynamic Pydantic model for validation
         sig = inspect.signature(func)
@@ -18,12 +64,19 @@ class Tool:
                 continue
             
             param_type = type_hints.get(param_name, Any)
+            pdesc = param_descriptions.get(param_name, "")
             
             # Check if there is a default value
             if param.default is inspect.Parameter.empty:
-                fields[param_name] = (param_type, ...)
+                if pdesc:
+                    fields[param_name] = (param_type, Field(default=..., description=pdesc))
+                else:
+                    fields[param_name] = (param_type, ...)
             else:
-                fields[param_name] = (param_type, param.default)
+                if pdesc:
+                    fields[param_name] = (param_type, Field(default=param.default, description=pdesc))
+                else:
+                    fields[param_name] = (param_type, param.default)
                 
         self.args_model: Type[BaseModel] = create_model(
             f"{self.name}_args",
