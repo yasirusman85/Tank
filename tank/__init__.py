@@ -1,4 +1,5 @@
 from tank.core.app import Tank
+from tank.core.config import settings
 from tank.ai.llm import LLM
 from tank.ai.tools import tool
 from tank.ai.agents import Agent
@@ -9,6 +10,7 @@ from tank.ai.rag.retriever import Retriever
 
 __all__ = [
     "Tank",
+    "settings",
     "LLM",
     "tool",
     "Agent",

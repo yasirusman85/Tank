@@ -28,3 +28,7 @@ dev = [
 [tool.setuptools.packages.find]
 where = ["."]
 include = ["tank*"]
+
+[project.scripts]
+tank = "tank.cli.main:main"
+

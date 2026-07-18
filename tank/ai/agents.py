@@ -29,11 +29,6 @@ class FinalResponseStep(BaseModel):
 AgentStep = Union[ThoughtStep, ToolCallStep, ToolResponseStep, TextTokenStep, FinalResponseStep]
 
 class Agent:
-    llm: LLM = LLM(provider="mock")
-    tools: List[Tool] = []
-    memory: BaseMemory = SimpleMemory()
-    max_iterations: int = 5
-
     def __init__(
         self,
         llm: LLM | None = None,
@@ -44,17 +39,48 @@ class Agent:
         """
         Allows overriding defaults at instantiation.
         """
+        from tank.core.config import settings
+        
+        # 1. Resolve LLM
         if llm is not None:
             self.llm = llm
+        elif hasattr(self, 'llm') and self.llm is not None:
+            # Keep class-level default if custom subclass overrides it
+            pass
+        else:
+            self.llm = LLM()
+            
+        # 2. Resolve tools
         if tools is not None:
             self.tools = tools
+        elif hasattr(self, 'tools') and self.tools is not None:
+            pass
+        else:
+            self.tools = []
+            
+        # 3. Resolve memory
         if memory is not None:
             self.memory = memory
+        elif hasattr(self, 'memory') and self.memory is not None:
+            pass
+        else:
+            if settings.MEMORY_BACKEND == "sqlalchemy":
+                from tank.ai.memory import SQLAlchemyMemory
+                self.memory = SQLAlchemyMemory(db_url=settings.DATABASE_URL)
+            else:
+                self.memory = SimpleMemory()
+                
+        # 4. Resolve max iterations
         if max_iterations is not None:
             self.max_iterations = max_iterations
+        elif hasattr(self, 'max_iterations') and self.max_iterations is not None:
+            pass
+        else:
+            self.max_iterations = 5
             
         # Map tools by name for fast lookup
         self._tools_map = {t.name: t for t in self.tools}
+
 
     async def run(self, query: str, session_id: str = "default") -> AsyncGenerator[AgentStep, None]:
         """

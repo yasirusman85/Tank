@@ -21,7 +21,7 @@ LLMStreamChunk = Union[LLMTokenChunk, LLMThoughtChunk, LLMToolCallChunk]
 class LLM:
     def __init__(
         self,
-        provider: str = "mock",
+        provider: str | None = None,
         model: str | None = None,
         api_key: str | None = None,
         **kwargs
@@ -30,8 +30,9 @@ class LLM:
         Initialize the LLM provider interface.
         provider: 'mock', 'openai', or 'anthropic'
         """
-        self.provider = provider.lower()
-        self.model = model or self._get_default_model(self.provider)
+        from tank.core.config import settings
+        self.provider = (provider or settings.DEFAULT_PROVIDER or "mock").lower()
+        self.model = model or settings.DEFAULT_MODEL or self._get_default_model(self.provider)
         self.api_key = api_key or self._get_api_key(self.provider)
         self.kwargs = kwargs
 
@@ -43,11 +44,13 @@ class LLM:
         return "mock-model"
 
     def _get_api_key(self, provider: str) -> Optional[str]:
+        from tank.core.config import settings
         if provider == "openai":
-            return os.getenv("OPENAI_API_KEY")
+            return settings.OPENAI_API_KEY or os.getenv("OPENAI_API_KEY")
         elif provider == "anthropic":
-            return os.getenv("ANTHROPIC_API_KEY")
+            return settings.ANTHROPIC_API_KEY or os.getenv("ANTHROPIC_API_KEY")
         return None
+
 
     async def astream(
         self,
