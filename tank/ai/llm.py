@@ -95,8 +95,44 @@ class LLM:
         has_weather_query = any("weather" in q for q in user_queries)
         has_add_query = any("add" in q for q in user_queries)
         
+        # Check if structured output is requested
+        has_final_answer_tool = False
+        if tools:
+            for t in tools:
+                if getattr(t, "name", None) == "__tank_final_answer__":
+                    has_final_answer_tool = True
+                    break
+
+        if has_final_answer_tool:
+            if last_message and last_message.get("role") == "tool" and last_message.get("name") == "__tank_final_answer__":
+                content = last_message.get("content", "")
+                if "Error:" in content:
+                    is_always_invalid = any("always_invalid" in q for q in user_queries)
+                    if is_always_invalid:
+                        yield LLMThoughtChunk(thought="Generating always invalid parameters again.")
+                        await asyncio.sleep(0.02)
+                        yield LLMToolCallChunk(name="__tank_final_answer__", arguments='{"name": "Alice", "age": -5}', id="call_final_always_invalid")
+                    else:
+                        yield LLMThoughtChunk(thought="Correcting final answer parameters.")
+                        await asyncio.sleep(0.02)
+                        yield LLMToolCallChunk(name="__tank_final_answer__", arguments='{"name": "Alice", "age": 30}', id="call_final_corrected")
+                else:
+                    yield LLMThoughtChunk(thought="Final answer call successful.")
+                    await asyncio.sleep(0.02)
+                    yield LLMTokenChunk(token="Done")
+            else:
+                is_invalid = any("invalid" in q for q in user_queries)
+                if is_invalid:
+                    yield LLMThoughtChunk(thought="Generating invalid profile parameters for validation check.")
+                    await asyncio.sleep(0.02)
+                    yield LLMToolCallChunk(name="__tank_final_answer__", arguments='{"name": "Alice", "age": -5}', id="call_final_invalid")
+                else:
+                    yield LLMThoughtChunk(thought="Generating profile parameters.")
+                    await asyncio.sleep(0.02)
+                    yield LLMToolCallChunk(name="__tank_final_answer__", arguments='{"name": "Alice", "age": 30}', id="call_final_valid")
+
         # If the user asked an add query and the last message is NOT a tool response
-        if has_add_query and last_message and last_message.get("role") != "tool":
+        elif has_add_query and last_message and last_message.get("role") != "tool":
             import re
             user_content = next(
                 str(msg.get("content", ""))
