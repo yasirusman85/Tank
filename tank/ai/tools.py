@@ -46,10 +46,18 @@ def parse_docstring_params(doc: str) -> dict[str, str]:
     return params
 
 class Tool:
-    def __init__(self, func: Callable[..., Any], name: str | None = None, description: str | None = None):
+    def __init__(
+        self,
+        func: Callable[..., Any],
+        name: str | None = None,
+        description: str | None = None,
+        requires_approval: bool = False
+    ):
         self.func = func
         self.name = name or func.__name__
         self.description = description or func.__doc__ or ""
+        self.requires_approval = requires_approval
+
         
         # Parse parameter descriptions from the docstring
         param_descriptions = parse_docstring_params(self.description)
@@ -133,15 +141,17 @@ def tool(
     func: Callable[..., Any] | None = None,
     *,
     name: str | None = None,
-    description: str | None = None
+    description: str | None = None,
+    requires_approval: bool = False
 ):
     """
     Decorator to register a function as a Tank tool.
     Can be used as @tool or @tool(name="custom_name", description="custom_desc")
     """
     def decorator(f: Callable[..., Any]) -> Tool:
-        return Tool(f, name=name, description=description)
+        return Tool(f, name=name, description=description, requires_approval=requires_approval)
         
     if func is None:
         return decorator
     return decorator(func)
+

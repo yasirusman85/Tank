@@ -9,6 +9,8 @@ from tank.ai.agents import (
     ToolResponseStep,
     TextTokenStep,
     FinalResponseStep,
+    ValidationErrorStep,
+    ApprovalRequiredStep,
 )
 
 class AgentStreamResponse(StreamingResponse):
@@ -37,6 +39,12 @@ class AgentStreamResponse(StreamingResponse):
                 elif isinstance(step, FinalResponseStep):
                     event_name = "done"
                     data_dict = {"text": step.text}
+                elif isinstance(step, ValidationErrorStep):
+                    event_name = "validation_error"
+                    data_dict = {"errors": step.errors}
+                elif isinstance(step, ApprovalRequiredStep):
+                    event_name = "approval_required"
+                    data_dict = {"tool_name": step.tool_name, "arguments": step.arguments, "id": step.id}
 
                 if event_name:
                     data_str = json.dumps(data_dict)

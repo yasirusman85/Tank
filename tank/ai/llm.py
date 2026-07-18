@@ -94,6 +94,7 @@ class LLM:
         ]
         has_weather_query = any("weather" in q for q in user_queries)
         has_add_query = any("add" in q for q in user_queries)
+        has_sensitive_query = any("sensitive" in q for q in user_queries)
         
         # Check if structured output is requested
         has_final_answer_tool = False
@@ -130,6 +131,12 @@ class LLM:
                     yield LLMThoughtChunk(thought="Generating profile parameters.")
                     await asyncio.sleep(0.02)
                     yield LLMToolCallChunk(name="__tank_final_answer__", arguments='{"name": "Alice", "age": 30}', id="call_final_valid")
+
+        # If the user asked a sensitive action query and the last message is NOT a tool response
+        elif has_sensitive_query and last_message and last_message.get("role") != "tool":
+            yield LLMThoughtChunk(thought="I need to invoke the sensitive_action tool.")
+            await asyncio.sleep(0.05)
+            yield LLMToolCallChunk(name="sensitive_action", arguments='{"target": "test"}', id="call_sensitive")
 
         # If the user asked an add query and the last message is NOT a tool response
         elif has_add_query and last_message and last_message.get("role") != "tool":
@@ -170,12 +177,15 @@ class LLM:
             
             if tool_name == "get_weather":
                 response_text = f"The weather in San Francisco is sunny and 72°F (based on tool result: {tool_content})."
+            elif tool_name == "sensitive_action":
+                response_text = f"Sensitive action completed: {tool_content}."
             else:
                 response_text = f"Result of {tool_name} is {tool_content}."
                 
             for word in response_text.split(" "):
                 yield LLMTokenChunk(token=word + " ")
                 await asyncio.sleep(0.02)
+
 
                 
         else:

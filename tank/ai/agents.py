@@ -28,8 +28,14 @@ class FinalResponseStep(BaseModel):
 class ValidationErrorStep(BaseModel):
     errors: List[str]
 
+class ApprovalRequiredStep(BaseModel):
+    tool_name: str
+    arguments: Dict[str, Any]
+    id: str
+
 # Unified agent step type
-AgentStep = Union[ThoughtStep, ToolCallStep, ToolResponseStep, TextTokenStep, FinalResponseStep, ValidationErrorStep]
+AgentStep = Union[ThoughtStep, ToolCallStep, ToolResponseStep, TextTokenStep, FinalResponseStep, ValidationErrorStep, ApprovalRequiredStep]
+
 
 
 class Agent:
@@ -140,6 +146,112 @@ class Agent:
         messages.append(user_msg)
         await self.memory.add_message(session_id, user_msg)
         
+        # 3. Delegate to the execute loop
+        async for step in self._execute_loop(session_id):
+            yield step
+
+    async def resume(
+        self,
+        session_id: str,
+        tool_call_id: str,
+        approved: bool,
+        user_feedback: Optional[str] = None
+    ) -> AsyncGenerator[AgentStep, None]:
+        """
+        Resume a paused agent execution by providing confirmation for a pending tool call.
+        """
+        # 1. Fetch conversation history from memory
+        messages = await self.memory.get_messages(session_id)
+        if not messages:
+            raise ValueError(f"No conversation history found for session '{session_id}'.")
+            
+        # 2. Locate the last assistant message containing the pending tool call
+        last_assistant_msg = None
+        for msg in reversed(messages):
+            if msg.get("role") == "assistant" and "tool_calls" in msg:
+                last_assistant_msg = msg
+                break
+                
+        if not last_assistant_msg:
+            raise ValueError(f"No pending tool calls found in session '{session_id}'.")
+            
+        # Find the target tool call by ID
+        target_tc = None
+        for tc in last_assistant_msg["tool_calls"]:
+            if tc.get("id") == tool_call_id:
+                target_tc = tc
+                break
+                
+        if not target_tc:
+            raise ValueError(f"No pending tool call found matching id '{tool_call_id}'.")
+            
+        # 3. Execute or reject the tool call
+        tc_name = target_tc["name"]
+        tc_args = target_tc["arguments"]
+        
+        if approved:
+            # Execute the tool
+            if tc_name == "__tank_final_answer__":
+                try:
+                    validated = self.response_model.model_validate(tc_args)
+                    result = "Success"
+                    yield FinalResponseStep(text=validated)
+                except ValidationError as ve:
+                    error_msgs = [f"Field '{'.'.join(str(x) for x in err['loc'])}': {err['msg']}" for err in ve.errors()]
+                    result = f"Error: Validation failed. {'; '.join(error_msgs)}. Please call '__tank_final_answer__' again with corrected parameters."
+            else:
+                tool_obj = self._tools_map.get(tc_name)
+                if not tool_obj:
+                    result = f"Error: Tool '{tc_name}' is not registered."
+                else:
+                    try:
+                        result = await tool_obj(**tc_args)
+                    except Exception as e:
+                        result = f"Error: {str(e)}"
+        else:
+            # Rejection feedback
+            feedback = user_feedback or "User denied approval."
+            result = f"Error: User denied approval. {feedback}"
+            
+        # 4. Yield ToolResponseStep and record message in memory
+        yield ToolResponseStep(name=tc_name, result=result, id=tool_call_id)
+        
+        tool_msg = {
+            "role": "tool",
+            "tool_call_id": tool_call_id,
+            "name": tc_name,
+            "content": str(result)
+        }
+        await self.memory.add_message(session_id, tool_msg)
+        
+        # 5. Check if there are other pending tool calls in this turn that still require approval
+        messages = await self.memory.get_messages(session_id)
+        # Find all tool responses for this turn
+        responses_by_id = {msg.get("tool_call_id") for msg in messages if msg.get("role") == "tool"}
+        
+        pending_approvals = []
+        for tc in last_assistant_msg["tool_calls"]:
+            if tc.get("id") not in responses_by_id:
+                t_obj = self._tools_map.get(tc["name"])
+                if t_obj and getattr(t_obj, "requires_approval", False):
+                    pending_approvals.append(tc)
+                    
+        if pending_approvals:
+            # Yield remaining approvals and stay paused
+            for tc in pending_approvals:
+                yield ApprovalRequiredStep(tool_name=tc["name"], arguments=tc["arguments"], id=tc["id"])
+            return
+            
+        # 6. If no more pending tool calls, continue the execution loop!
+        async for step in self._execute_loop(session_id):
+            yield step
+
+    async def _execute_loop(self, session_id: str) -> AsyncGenerator[AgentStep, None]:
+        """
+        Internal execution loop that runs the LLM generation and tool execution.
+        """
+        messages = await self.memory.get_messages(session_id)
+        
         # Setup final response tool dynamically if response_model is defined
         active_tools = list(self.tools)
         if self.response_model:
@@ -177,7 +289,7 @@ class Agent:
                 if not system_found:
                      messages_to_send.insert(0, {"role": "system", "content": schema_instruction})
 
-            # 3. Request stream from LLM
+            # Request stream from LLM
             llm_stream = self.llm.astream(messages_to_send, tools=active_tools)
             
             async for chunk in llm_stream:
@@ -187,12 +299,10 @@ class Agent:
                     
                 elif isinstance(chunk, LLMTokenChunk):
                     content_accumulated.append(chunk.token)
-                    # Suppress raw text tokens from being streamed to the user if response_model is active
                     if not self.response_model:
                         yield TextTokenStep(token=chunk.token)
                     
                 elif isinstance(chunk, LLMToolCallChunk):
-                    # Buffer the tool call arguments as they stream in
                     tc_id = chunk.id
                     if tc_id not in tool_calls_buffered:
                         tool_calls_buffered[tc_id] = {
@@ -201,7 +311,7 @@ class Agent:
                         }
                     tool_calls_buffered[tc_id]["arguments_stream"].append(chunk.arguments)
 
-            # 4. If no tool calls were requested, the execution turn is complete
+            # If no tool calls were requested, the execution turn is complete
             if not tool_calls_buffered:
                 assistant_content = "".join(content_accumulated)
                 assistant_thought = "".join(thoughts_accumulated)
@@ -215,8 +325,6 @@ class Agent:
                 await self.memory.add_message(session_id, assistant_msg)
                 
                 if self.response_model:
-                    # The model was instructed to use __tank_final_answer__ but did not.
-                    # This is treated as a validation failure (did not call tool).
                     validation_failures += 1
                     error_msg = "Error: You did not call the '__tank_final_answer__' tool to deliver your final response. Please retry and call '__tank_final_answer__'."
                     if validation_failures >= self.max_validation_retries:
@@ -224,29 +332,25 @@ class Agent:
                         break
                     else:
                         yield ThoughtStep(thought="Agent failed to return structured response. Retrying...")
-                        # INTENTIONALLY SYNTHETIC: Append a fake tool call and response in history to prompt the LLM
-                        # to self-correct when it skipped calling the hidden validation tool.
                         fake_tool_call_id = f"fake_call_{iteration}"
                         # Save fake assistant tool call request in history to satisfy OpenAI contiguous message rules
                         await self.memory.add_message(session_id, {
                             "role": "assistant",
                             "tool_calls": [{"id": fake_tool_call_id, "name": "__tank_final_answer__", "arguments": {}}]
                         })
-                        # Save tool error response to prompt the self-correction
                         await self.memory.add_message(session_id, {
                             "role": "tool",
                             "tool_call_id": fake_tool_call_id,
                             "name": "__tank_final_answer__",
                             "content": error_msg
                         })
-
                         messages = await self.memory.get_messages(session_id)
                         continue
                 else:
                     yield FinalResponseStep(text=assistant_content)
                     break
                 
-            # 5. Process tool calls
+            # Process tool calls
             tool_calls_to_run = []
             for tc_id, tc_data in tool_calls_buffered.items():
                 args_str = "".join(tc_data["arguments_stream"])
@@ -279,6 +383,16 @@ class Agent:
             for tc in tool_calls_to_run:
                 yield ToolCallStep(name=tc["name"], arguments=tc["arguments"], id=tc["id"])
                 
+            # Separate tool calls by requires_approval attribute
+            pending_approvals = []
+            normal_calls = []
+            for tc in tool_calls_to_run:
+                t_obj = self._tools_map.get(tc["name"])
+                if t_obj and getattr(t_obj, "requires_approval", False):
+                    pending_approvals.append(tc)
+                else:
+                    normal_calls.append(tc)
+
             # Intercept __tank_final_answer__ validation at runtime
             final_answer_val_step = None
             final_answer_val_error = None
@@ -289,7 +403,6 @@ class Agent:
                 t_args = tc_dict["arguments"]
                 
                 if t_name == "__tank_final_answer__":
-                    # Perform schema validation
                     nonlocal final_answer_tc_id, final_answer_val_step, final_answer_val_error
                     final_answer_tc_id = tc_dict["id"]
                     try:
@@ -313,15 +426,13 @@ class Agent:
                 except Exception as e:
                     return f"Error: {str(e)} Please retry with correct inputs."
 
-            # Run all tools concurrently
-            tasks = [run_single_tool(tc) for tc in tool_calls_to_run]
+            # Run all normal tools concurrently
+            tasks = [run_single_tool(tc) for tc in normal_calls]
             results = await asyncio.gather(*tasks)
 
-            # Yield responses and append to memory
-            for tc, result in zip(tool_calls_to_run, results):
+            # Yield responses and append to memory for normal tools
+            for tc, result in zip(normal_calls, results):
                 yield ToolResponseStep(name=tc["name"], result=result, id=tc["id"])
-                
-                # Append tool response to memory
                 tool_msg = {
                     "role": "tool",
                     "tool_call_id": tc["id"],
@@ -333,7 +444,6 @@ class Agent:
             # Check if final answer was validated or failed
             if final_answer_tc_id:
                 if final_answer_val_step:
-                    # Successful validation!
                     yield final_answer_val_step
                     break
                 elif final_answer_val_error:
@@ -343,14 +453,18 @@ class Agent:
                         break
                     else:
                         yield ThoughtStep(thought=f"Validation failed (attempt {validation_failures}/{self.max_validation_retries}): {'; '.join(final_answer_val_error)}. Retrying...")
-                
+
+            # Yield remaining approvals and pause the loop execution!
+            if pending_approvals:
+                for tc in pending_approvals:
+                    yield ApprovalRequiredStep(tool_name=tc["name"], arguments=tc["arguments"], id=tc["id"])
+                return  # Exits generator, leaving state paused until resume() is called
+
             # Update messages with the complete session history for the next iteration
             messages = await self.memory.get_messages(session_id)
             
         else:
-            # Fallback if loop exceeded max iterations
             if self.response_model:
                 yield ValidationErrorStep(errors=["Error: Maximum execution iterations reached without resolving schema validation."])
             else:
                 yield FinalResponseStep(text="Error: Maximum execution iterations exceeded.")
-
