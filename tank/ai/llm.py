@@ -83,15 +83,35 @@ class LLM:
         # Check if there are any tool calls or responses in history
         last_message = messages[-1] if messages else None
         
-        # Check if the user is asking for a tool execution (e.g. contains 'weather' or 'add')
-        has_weather_query = any(
-            "weather" in str(msg.get("content", "")).lower()
+        # Check user queries
+        user_queries = [
+            str(msg.get("content", "")).lower()
             for msg in messages
             if msg.get("role") == "user"
-        )
+        ]
+        has_weather_query = any("weather" in q for q in user_queries)
+        has_add_query = any("add" in q for q in user_queries)
         
+        # If the user asked an add query and the last message is NOT a tool response
+        if has_add_query and last_message and last_message.get("role") != "tool":
+            import re
+            user_content = next(
+                str(msg.get("content", ""))
+                for msg in reversed(messages)
+                if msg.get("role") == "user"
+            )
+            numbers = [int(s) for s in re.findall(r'\d+', user_content)]
+            a = numbers[0] if len(numbers) > 0 else 0
+            b = numbers[1] if len(numbers) > 1 else 0
+            
+            yield LLMThoughtChunk(thought="Evaluating math query...")
+            await asyncio.sleep(0.05)
+            yield LLMThoughtChunk(thought=f"I need to call the add tool with parameters a={a} and b={b}")
+            await asyncio.sleep(0.05)
+            yield LLMToolCallChunk(name="add", arguments=json.dumps({"a": a, "b": b}), id="call_mock_add")
+
         # If the user asked a weather query and the last message is NOT a tool response
-        if has_weather_query and last_message and last_message.get("role") != "tool":
+        elif has_weather_query and last_message and last_message.get("role") != "tool":
             # Stream a thought first
             yield LLMThoughtChunk(thought="Checking if get_weather tool is available...")
             await asyncio.sleep(0.05)
@@ -102,15 +122,22 @@ class LLM:
             
         # If the last message IS a tool response, finalize the answer
         elif last_message and last_message.get("role") == "tool":
-            yield LLMThoughtChunk(thought=f"Received weather tool response: {last_message.get('content')}")
+            tool_name = last_message.get("name", "tool")
+            tool_content = last_message.get("content", "")
+            yield LLMThoughtChunk(thought=f"Received tool response from {tool_name}: {tool_content}")
             await asyncio.sleep(0.05)
-            yield LLMThoughtChunk(thought="Generating final summary based on weather details.")
+            yield LLMThoughtChunk(thought="Generating final summary based on tool details.")
             await asyncio.sleep(0.05)
             
-            response_text = f"The weather in San Francisco is sunny and 72°F (based on tool result: {last_message.get('content')})."
+            if tool_name == "get_weather":
+                response_text = f"The weather in San Francisco is sunny and 72°F (based on tool result: {tool_content})."
+            else:
+                response_text = f"Result of {tool_name} is {tool_content}."
+                
             for word in response_text.split(" "):
                 yield LLMTokenChunk(token=word + " ")
                 await asyncio.sleep(0.02)
+
                 
         else:
             # Default normal response
@@ -121,6 +148,7 @@ class LLM:
             for word in response_text.split(" "):
                 yield LLMTokenChunk(token=word + " ")
                 await asyncio.sleep(0.02)
+
 
     async def _astream_openai(
         self,
