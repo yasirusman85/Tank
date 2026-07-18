@@ -224,20 +224,22 @@ class Agent:
                         break
                     else:
                         yield ThoughtStep(thought="Agent failed to return structured response. Retrying...")
-                        # Append fake tool call/response to prompt LLM
+                        # INTENTIONALLY SYNTHETIC: Append a fake tool call and response in history to prompt the LLM
+                        # to self-correct when it skipped calling the hidden validation tool.
                         fake_tool_call_id = f"fake_call_{iteration}"
-                        # Save fake assistant tool call request in history to satisfy OpenAI structure rules
+                        # Save fake assistant tool call request in history to satisfy OpenAI contiguous message rules
                         await self.memory.add_message(session_id, {
                             "role": "assistant",
                             "tool_calls": [{"id": fake_tool_call_id, "name": "__tank_final_answer__", "arguments": {}}]
                         })
-                        # Save tool error response
+                        # Save tool error response to prompt the self-correction
                         await self.memory.add_message(session_id, {
                             "role": "tool",
                             "tool_call_id": fake_tool_call_id,
                             "name": "__tank_final_answer__",
                             "content": error_msg
                         })
+
                         messages = await self.memory.get_messages(session_id)
                         continue
                 else:

@@ -34,6 +34,11 @@ async def test_response_model_success():
     assert finals[0].text.name == "Alice"
     assert finals[0].text.age == 30
 
+    # Ensure text token suppression works
+    tokens = [s for s in steps if isinstance(s, TextTokenStep)]
+    assert len(tokens) == 0
+
+
 @pytest.mark.asyncio
 async def test_response_model_self_correction():
     llm = LLM(provider="mock")
@@ -70,6 +75,11 @@ async def test_response_model_self_correction():
     assert len(finals) == 1
     assert isinstance(finals[0].text, Profile)
     assert finals[0].text.age == 30
+
+    # Ensure text token suppression works
+    tokens = [s for s in steps if isinstance(s, TextTokenStep)]
+    assert len(tokens) == 0
+
 
 @pytest.mark.asyncio
 async def test_response_model_exhaustion():
