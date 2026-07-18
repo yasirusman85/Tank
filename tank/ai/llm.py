@@ -89,6 +89,11 @@ class LLM:
             for msg in messages
             if msg.get("role") == "user"
         )
+        has_add_query = any(
+            any(k in str(msg.get("content", "")).lower() for k in ("add", "sum", "plus", "calc"))
+            for msg in messages
+            if msg.get("role") == "user"
+        )
         
         # If the user asked a weather query and the last message is NOT a tool response
         if has_weather_query and last_message and last_message.get("role") != "tool":
@@ -100,17 +105,50 @@ class LLM:
             # Stream a tool call
             yield LLMToolCallChunk(name="get_weather", arguments='{"location": "San Francisco"}', id="call_mock_1")
             
-        # If the last message IS a tool response, finalize the answer
-        elif last_message and last_message.get("role") == "tool":
-            yield LLMThoughtChunk(thought=f"Received weather tool response: {last_message.get('content')}")
+        # If the user asked an add query and the last message is NOT a tool response
+        elif has_add_query and last_message and last_message.get("role") != "tool":
+            # Stream a thought first
+            yield LLMThoughtChunk(thought="Checking if add tool is available...")
             await asyncio.sleep(0.05)
-            yield LLMThoughtChunk(thought="Generating final summary based on weather details.")
+            yield LLMThoughtChunk(thought="I should invoke the add tool with the inputs.")
             await asyncio.sleep(0.05)
             
-            response_text = f"The weather in San Francisco is sunny and 72°F (based on tool result: {last_message.get('content')})."
-            for word in response_text.split(" "):
-                yield LLMTokenChunk(token=word + " ")
-                await asyncio.sleep(0.02)
+            # Simple parsing of digits
+            import re
+            user_content = next((str(msg.get("content", "")) for msg in reversed(messages) if msg.get("role") == "user"), "")
+            digits = re.findall(r"\b\d+\b", user_content)
+            a, b = 2, 3
+            if len(digits) >= 2:
+                a, b = int(digits[0]), int(digits[1])
+            elif len(digits) == 1:
+                a = int(digits[0])
+                
+            # Stream a tool call
+            yield LLMToolCallChunk(name="add", arguments=f'{{"a": {a}, "b": {b}}}', id="call_mock_add_1")
+
+        # If the last message IS a tool response, finalize the answer
+        elif last_message and last_message.get("role") == "tool":
+            tool_name = last_message.get("name")
+            if tool_name == "add":
+                yield LLMThoughtChunk(thought=f"Received addition tool response: {last_message.get('content')}")
+                await asyncio.sleep(0.05)
+                yield LLMThoughtChunk(thought="Generating final summary based on addition details.")
+                await asyncio.sleep(0.05)
+                
+                response_text = f"The result of the addition is {last_message.get('content')}."
+                for word in response_text.split(" "):
+                    yield LLMTokenChunk(token=word + " ")
+                    await asyncio.sleep(0.02)
+            else:
+                yield LLMThoughtChunk(thought=f"Received weather tool response: {last_message.get('content')}")
+                await asyncio.sleep(0.05)
+                yield LLMThoughtChunk(thought="Generating final summary based on weather details.")
+                await asyncio.sleep(0.05)
+                
+                response_text = f"The weather in San Francisco is sunny and 72°F (based on tool result: {last_message.get('content')})."
+                for word in response_text.split(" "):
+                    yield LLMTokenChunk(token=word + " ")
+                    await asyncio.sleep(0.02)
                 
         else:
             # Default normal response
