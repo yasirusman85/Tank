@@ -1,3 +1,7 @@
+"""
+Server-Sent Events (SSE) streaming response implementation for Tank framework.
+Converts Agent execution steps into typed SSE event messages.
+"""
 import json
 from dataclasses import dataclass
 from functools import singledispatch
@@ -55,7 +59,11 @@ def _(step: TextTokenStep) -> SSEEvent:
 
 @_step_to_event.register
 def _(step: FinalResponseStep) -> SSEEvent:
-    return SSEEvent(name="done", data={"text": step.text})
+    text = step.text
+    if hasattr(text, "model_dump"):
+        text = text.model_dump()
+    return SSEEvent(name="done", data={"text": text})
+
 
 
 @_step_to_event.register

@@ -1,8 +1,13 @@
+"""
+LLM abstraction layer for Tank framework.
+Provides unified streaming interface across Mock, OpenAI, and Anthropic providers.
+"""
 import os
 import json
 import asyncio
 from typing import Optional, List, Dict, Any, AsyncGenerator, Union
 from pydantic import BaseModel
+
 
 class LLMTokenChunk(BaseModel):
     token: str

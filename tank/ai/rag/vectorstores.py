@@ -1,8 +1,16 @@
+"""
+Vector store backends for Tank framework.
+Provides BaseVectorStore abstract interface and SimpleVectorStore in-memory implementation with JSON persistence.
+"""
 import json
 import os
+import logging
 from abc import ABC, abstractmethod
 from typing import List, Dict, Any, Tuple, Optional
 from tank.ai.rag.embeddings import BaseEmbeddings
+
+logger = logging.getLogger("tank.rag.vectorstores")
+
 
 class BaseVectorStore(ABC):
     def __init__(self, embeddings: BaseEmbeddings):
@@ -92,5 +100,7 @@ class SimpleVectorStore(BaseVectorStore):
         try:
             with open(self.persist_path, "r", encoding="utf-8") as f:
                 self.documents = json.load(f)
-        except Exception:
+        except Exception as e:
+            logger.warning(f"Failed to load vectorstore from {self.persist_path}: {e}")
             self.documents = []
+

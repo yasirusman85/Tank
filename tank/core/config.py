@@ -1,7 +1,13 @@
+"""
+Configuration and settings singleton manager for Tank framework.
+Loads settings from environment variables and overrides from local settings.py.
+"""
 import os
 import sys
+import logging
 import importlib.util
-from typing import Optional
+
+logger = logging.getLogger("tank.config")
 
 class Settings:
     """
@@ -42,9 +48,9 @@ class Settings:
                     for key in dir(local_settings):
                         if key.isupper():
                             setattr(self, key, getattr(local_settings, key))
-            except Exception:
-                # Suppress errors to avoid breaking CLI before configuration is ready
-                pass
+            except Exception as e:
+                logger.warning(f"Could not load local settings from {settings_path}: {e}")
+
 
 # Global singleton settings object
 settings = Settings()

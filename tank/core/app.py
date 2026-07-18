@@ -1,19 +1,27 @@
-from typing import Type, TypeVar, List, Optional
+"""
+Main application class for Tank web framework.
+Wraps Starlette ASGI app and provides decorators for agent and HTTP routes.
+"""
+from typing import Type, TypeVar, List, Optional, Callable, Any
 from starlette.applications import Starlette
-from starlette.routing import BaseRoute
 
 from tank.ai.agents import Agent
 from tank.core.routing import create_agent_route_handler
 
-T = TypeVar("T", bound=Type[Agent])
+from tank.core.observability import admin_dashboard_handler
+
+T = TypeVar("T", bound=Agent)
 
 class Tank:
     """
-    Tank wraps a Starlette ASGI application and provides a decorator
-    to bind URL endpoints to Agent classes.
+    Tank wraps a Starlette ASGI application and provides decorators
+    to bind URL endpoints to Agent classes and HTTP handlers.
     """
     def __init__(self, *args, **kwargs):
         self.starlette_app = Starlette(*args, **kwargs)
+        # Register telemetry dashboard endpoint
+        self.starlette_app.add_route("/tank-admin", admin_dashboard_handler, methods=["GET"])
+
 
     def agent_route(self, path: str, methods: Optional[List[str]] = None, name: Optional[str] = None):
         """
@@ -23,7 +31,7 @@ class Tank:
         if methods is None:
             methods = ["POST"]
 
-        def decorator(agent_cls: T) -> T:
+        def decorator(agent_cls: Type[T]) -> Type[T]:
             handler = create_agent_route_handler(agent_cls)
             self.starlette_app.add_route(path, handler, methods=methods, name=name)
             return agent_cls
@@ -40,18 +48,17 @@ class Tank:
         """
         Decorator to register a standard URL route/endpoint.
         """
-        from typing import Callable
         def decorator(func: Callable) -> Callable:
             self.starlette_app.add_route(path, func, methods=methods, name=name)
             return func
         return decorator
 
-    def add_route(self, path: str, route: BaseRoute, **kwargs):
-        self.starlette_app.add_route(path, route, **kwargs)
+    def add_route(self, path: str, route: Callable, methods: Optional[List[str]] = None, name: Optional[str] = None, **kwargs):
+        self.starlette_app.add_route(path, route, methods=methods, name=name, **kwargs)
 
+    def add_websocket_route(self, path: str, route: Callable, name: Optional[str] = None, **kwargs):
+        self.starlette_app.add_websocket_route(path, route, name=name, **kwargs)
 
-    def add_websocket_route(self, path: str, route: BaseRoute, **kwargs):
-        self.starlette_app.add_websocket_route(path, route, **kwargs)
 
     def add_middleware(self, middleware_class: Type, **kwargs):
         self.starlette_app.add_middleware(middleware_class, **kwargs)

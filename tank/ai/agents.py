@@ -2,7 +2,8 @@ import json
 import asyncio
 from dataclasses import dataclass, field
 from functools import singledispatch
-from typing import List, Dict, Any, AsyncGenerator, Union, Optional, Type
+from typing import List, Dict, Any, AsyncGenerator, Union, Optional, Type, Callable
+
 from pydantic import BaseModel, ValidationError
 from tank.ai.llm import LLM, LLMThoughtChunk, LLMTokenChunk, LLMToolCallChunk
 from tank.ai.tools import Tool
@@ -77,10 +78,19 @@ def _(chunk: LLMToolCallChunk, agent: Any, state: _LLMTurnState) -> None:
 
 
 
+"""
+Agent loop execution, streaming steps, schema validation, and tool approval gates for Tank framework.
+"""
 class Agent:
     response_model: Optional[Type[BaseModel]] = None
     max_validation_retries: int = 3
     system_prompt: Optional[str] = None
+
+    def _resolve_attr(self, attr_name: str, passed_val: Any, default_factory: Callable[[], Any]):
+        if passed_val is not None:
+            setattr(self, attr_name, passed_val)
+        elif not (hasattr(self, attr_name) and getattr(self, attr_name) is not None):
+            setattr(self, attr_name, default_factory())
 
     def __init__(
         self,
@@ -96,68 +106,24 @@ class Agent:
         Allows overriding defaults at instantiation.
         """
         from tank.core.config import settings
+
+        self._resolve_attr("llm", llm, lambda: LLM())
+        self._resolve_attr("tools", tools, lambda: [])
         
-        # 1. Resolve LLM
-        if llm is not None:
-            self.llm = llm
-        elif hasattr(self, 'llm') and self.llm is not None:
-            pass
-        else:
-            self.llm = LLM()
-            
-        # 2. Resolve tools
-        if tools is not None:
-            self.tools = tools
-        elif hasattr(self, 'tools') and self.tools is not None:
-            pass
-        else:
-            self.tools = []
-            
-        # 3. Resolve memory
-        if memory is not None:
-            self.memory = memory
-        elif hasattr(self, 'memory') and self.memory is not None:
-            pass
-        else:
+        def _default_memory():
             if settings.MEMORY_BACKEND == "sqlalchemy":
                 from tank.ai.memory import SQLAlchemyMemory
-                self.memory = SQLAlchemyMemory(db_url=settings.DATABASE_URL)
-            else:
-                self.memory = SimpleMemory()
-                
-        # 4. Resolve max iterations
-        if max_iterations is not None:
-            self.max_iterations = max_iterations
-        elif hasattr(self, 'max_iterations') and self.max_iterations is not None:
-            pass
-        else:
-            self.max_iterations = 5
-
-        # 5. Resolve response_model
-        if response_model is not None:
-            self.response_model = response_model
-        elif hasattr(self, 'response_model') and self.response_model is not None:
-            pass
-        else:
-            self.response_model = None
-
-        # 6. Resolve max_validation_retries
-        if max_validation_retries is not None:
-            self.max_validation_retries = max_validation_retries
-        elif hasattr(self, 'max_validation_retries') and self.max_validation_retries is not None:
-            pass
-        else:
-            self.max_validation_retries = 3
-
-        # 7. Resolve system_prompt
-        if system_prompt is not None:
-            self.system_prompt = system_prompt
-        elif hasattr(self, 'system_prompt') and self.system_prompt is not None:
-            pass
-        else:
-            self.system_prompt = None
+                return SQLAlchemyMemory(db_url=settings.DATABASE_URL)
+            return SimpleMemory()
+            
+        self._resolve_attr("memory", memory, _default_memory)
+        self._resolve_attr("max_iterations", max_iterations, lambda: 5)
+        self._resolve_attr("response_model", response_model, lambda: None)
+        self._resolve_attr("max_validation_retries", max_validation_retries, lambda: 3)
+        self._resolve_attr("system_prompt", system_prompt, lambda: None)
             
         # Collision Guard for reserved tool name
+
         for t in self.tools:
             if t.name == "__tank_final_answer__":
                 raise ValueError("__tank_final_answer__ is a reserved tool name.")

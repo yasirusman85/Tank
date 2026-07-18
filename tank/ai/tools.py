@@ -1,3 +1,8 @@
+"""
+Tool registration and argument schema validation for Tank framework.
+Provides @tool decorator and Tool wrapper class using dynamic Pydantic schema generation.
+"""
+import re
 import inspect
 from typing import Callable, Any, get_type_hints, Dict, Type
 from pydantic import create_model, BaseModel, Field
@@ -28,7 +33,6 @@ def parse_docstring_params(doc: str) -> dict[str, str]:
                 
         if google_mode:
             # Matches: name (type): description OR name: description
-            import re
             m = re.match(r"^\s*([a-zA-Z_][a-zA-Z0-9_]*)\s*(?:\([^)]+\))?\s*:\s*(.*)$", line)
             if m:
                 pname = m.group(1)
@@ -36,12 +40,12 @@ def parse_docstring_params(doc: str) -> dict[str, str]:
                 params[pname] = pdesc
         else:
             # Sphinx style: :param name: description
-            import re
             m = re.match(r"^\s*:(?:param|parameter)\s+([a-zA-Z_][a-zA-Z0-9_]*)\s*:\s*(.*)$", line)
             if m:
                 pname = m.group(1)
                 pdesc = m.group(2).strip()
                 params[pname] = pdesc
+
                 
     return params
 

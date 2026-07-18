@@ -5,9 +5,25 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "tank"
 version = "0.1.0"
-description = "An AI-native web framework"
+description = "An AI-native web framework built for streaming LLM agents, tool calling, RAG, and HITL approval gates."
 readme = "README.md"
 requires-python = ">=3.10"
+license = { text = "MIT" }
+authors = [
+    { name = "Yasir Usman", email = "uyasir85@gmail.com" }
+]
+keywords = ["ai", "agents", "llm", "framework", "starlette", "rag", "pydantic", "sse"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+    "Topic :: Software Development :: Libraries :: Application Frameworks",
+]
 dependencies = [
     "starlette>=0.30.0",
     "uvicorn>=0.20.0",
@@ -19,6 +35,11 @@ dependencies = [
     "aiosqlite>=0.18.0",
 ]
 
+[project.urls]
+Homepage = "https://github.com/yasirusman85/Tank"
+Repository = "https://github.com/yasirusman85/Tank"
+Issues = "https://github.com/yasirusman85/Tank/issues"
+
 [project.optional-dependencies]
 dev = [
     "pytest>=7.0.0",
@@ -29,6 +50,10 @@ dev = [
 where = ["."]
 include = ["tank*"]
 
+[tool.setuptools.package-data]
+tank = ["py.typed"]
+
 [project.scripts]
 tank = "tank.cli.main:main"
+
 

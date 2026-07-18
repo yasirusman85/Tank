@@ -1,8 +1,13 @@
+"""
+Memory storage backends for Tank agent sessions.
+Provides abstract base memory interface along with SimpleMemory, SQLAlchemyMemory, and TokenBufferMemory.
+"""
 import json
 import datetime
+from datetime import timezone
 from abc import ABC, abstractmethod
 from typing import List, Dict, Any, Optional
-from sqlalchemy import String, Text, Integer, Column, JSON, DateTime, select, delete
+from sqlalchemy import String, Text, Integer, JSON, DateTime, select, delete
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
@@ -55,8 +60,9 @@ class DBMessage(Base):
     tool_call_id: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
     name: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
     created_at: Mapped[datetime.datetime] = mapped_column(
-        DateTime, default=datetime.datetime.utcnow
+        DateTime, default=lambda: datetime.datetime.now(timezone.utc)
     )
+
 
 
 class SQLAlchemyMemory(BaseMemory):

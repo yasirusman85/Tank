@@ -1,9 +1,14 @@
-from typing import Type, Callable, Any
+"""
+Route handling factories for Tank agent endpoints.
+Binds Agent classes to Starlette request handlers.
+"""
+from typing import Type, Callable
 from starlette.requests import Request
 from starlette.responses import Response
 
 from tank.ai.agents import Agent
 from tank.core.response import AgentStreamResponse
+
 
 def create_agent_route_handler(agent_cls: Type[Agent]) -> Callable[[Request], Response]:
     """
@@ -53,10 +58,32 @@ def create_agent_route_handler(agent_cls: Type[Agent]) -> Callable[[Request], Re
         agent.request = request
         agent.headers = dict(request.headers)
 
-        # Execute agent stream
-        steps_generator = agent.run(query=prompt, session_id=session_id)
+        # Tracing execution
+        import uuid
+        from tank.core.observability import tracer, TraceRecord
+
+        trace_record = TraceRecord(
+            trace_id=str(uuid.uuid4()),
+            session_id=session_id,
+            agent_name=agent_cls.__name__
+        )
+
+        async def traced_generator():
+            try:
+                async for step in agent.run(query=prompt, session_id=session_id):
+                    step_type = step.__class__.__name__
+                    step_data = step.model_dump() if hasattr(step, "model_dump") else {}
+                    trace_record.add_step(step_type, step_data)
+                    yield step
+                trace_record.finish(status="completed")
+            except Exception as e:
+                trace_record.finish(status="failed")
+                raise e
+            finally:
+                tracer.record_trace(trace_record)
 
         # Return streaming response
-        return AgentStreamResponse(steps_generator)
+        return AgentStreamResponse(traced_generator())
+
 
     return route_handler

@@ -1,5 +1,9 @@
+"""
+Embedding models abstraction for Tank RAG primitives.
+Provides BaseEmbeddings interface along with MockEmbeddings and OpenAIEmbeddings implementations.
+"""
 import os
-import hashlib
+import re
 from abc import ABC, abstractmethod
 from typing import List
 
@@ -27,9 +31,9 @@ class MockEmbeddings(BaseEmbeddings):
         self.vocab_counter = 0
 
     def _generate_vector(self, text: str) -> List[float]:
-        import re
         words = re.findall(r'\w+', text.lower())
         vector = [0.0] * self.dimension
+
         if not words:
             vector[0] = 1.0
             return vector
