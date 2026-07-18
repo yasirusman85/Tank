@@ -12,6 +12,7 @@ from tank.ai.agents import (
     ValidationErrorStep
 )
 from tank.ai.memory import SimpleMemory
+from tank.core.response import AgentStepEventFactory
 
 class Profile(BaseModel):
     name: str = Field(description="Name of the person")
@@ -109,6 +110,16 @@ def test_response_model_collision_check():
         Agent(tools=[__tank_final_answer__])
         
     assert "__tank_final_answer__ is a reserved tool name" in str(excinfo.value)
+
+
+def test_agent_step_event_factory_maps_steps_to_sse_events():
+    step = ToolCallStep(name="lookup", arguments={"id": 1}, id="call-1")
+
+    event = AgentStepEventFactory.create(step)
+
+    assert event is not None
+    assert event.name == "tool_call"
+    assert event.data == {"name": "lookup", "arguments": {"id": 1}, "id": "call-1"}
 
 @pytest.mark.asyncio
 async def test_response_model_regression_check():

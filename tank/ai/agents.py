@@ -1,5 +1,7 @@
 import json
 import asyncio
+from dataclasses import dataclass, field
+from functools import singledispatch
 from typing import List, Dict, Any, AsyncGenerator, Union, Optional, Type
 from pydantic import BaseModel, ValidationError
 from tank.ai.llm import LLM, LLMThoughtChunk, LLMTokenChunk, LLMToolCallChunk
@@ -35,6 +37,43 @@ class ApprovalRequiredStep(BaseModel):
 
 # Unified agent step type
 AgentStep = Union[ThoughtStep, ToolCallStep, ToolResponseStep, TextTokenStep, FinalResponseStep, ValidationErrorStep, ApprovalRequiredStep]
+
+
+@dataclass
+class _LLMTurnState:
+    content_accumulated: List[str] = field(default_factory=list)
+    thoughts_accumulated: List[str] = field(default_factory=list)
+    tool_calls_buffered: Dict[str, Dict[str, Any]] = field(default_factory=dict)
+
+
+@singledispatch
+def _handle_llm_chunk(chunk: Any, agent: Any, state: _LLMTurnState) -> Optional[AgentStep]:
+    return None
+
+
+@_handle_llm_chunk.register
+def _(chunk: LLMThoughtChunk, agent: Any, state: _LLMTurnState) -> ThoughtStep:
+    state.thoughts_accumulated.append(chunk.thought)
+    return ThoughtStep(thought=chunk.thought)
+
+
+@_handle_llm_chunk.register
+def _(chunk: LLMTokenChunk, agent: Any, state: _LLMTurnState) -> Optional[TextTokenStep]:
+    state.content_accumulated.append(chunk.token)
+    if not agent.response_model:
+        return TextTokenStep(token=chunk.token)
+    return None
+
+
+@_handle_llm_chunk.register
+def _(chunk: LLMToolCallChunk, agent: Any, state: _LLMTurnState) -> None:
+    if chunk.id not in state.tool_calls_buffered:
+        state.tool_calls_buffered[chunk.id] = {
+            "name": chunk.name,
+            "arguments_stream": [],
+        }
+    state.tool_calls_buffered[chunk.id]["arguments_stream"].append(chunk.arguments)
+    return None
 
 
 
@@ -272,9 +311,7 @@ class Agent:
             iteration += 1
             
             # Accumulators for this specific LLM generation turn
-            content_accumulated = []
-            thoughts_accumulated = []
-            tool_calls_buffered = {}
+            turn_state = _LLMTurnState()
             
             # Format system instructions if response_model is active
             messages_to_send = [dict(m) for m in messages]
@@ -293,28 +330,14 @@ class Agent:
             llm_stream = self.llm.astream(messages_to_send, tools=active_tools)
             
             async for chunk in llm_stream:
-                if isinstance(chunk, LLMThoughtChunk):
-                    thoughts_accumulated.append(chunk.thought)
-                    yield ThoughtStep(thought=chunk.thought)
-                    
-                elif isinstance(chunk, LLMTokenChunk):
-                    content_accumulated.append(chunk.token)
-                    if not self.response_model:
-                        yield TextTokenStep(token=chunk.token)
-                    
-                elif isinstance(chunk, LLMToolCallChunk):
-                    tc_id = chunk.id
-                    if tc_id not in tool_calls_buffered:
-                        tool_calls_buffered[tc_id] = {
-                            "name": chunk.name,
-                            "arguments_stream": []
-                        }
-                    tool_calls_buffered[tc_id]["arguments_stream"].append(chunk.arguments)
+                step = _handle_llm_chunk(chunk, self, turn_state)
+                if step:
+                    yield step
 
             # If no tool calls were requested, the execution turn is complete
-            if not tool_calls_buffered:
-                assistant_content = "".join(content_accumulated)
-                assistant_thought = "".join(thoughts_accumulated)
+            if not turn_state.tool_calls_buffered:
+                assistant_content = "".join(turn_state.content_accumulated)
+                assistant_thought = "".join(turn_state.thoughts_accumulated)
                 
                 assistant_msg = {"role": "assistant"}
                 if assistant_content:
@@ -352,7 +375,7 @@ class Agent:
                 
             # Process tool calls
             tool_calls_to_run = []
-            for tc_id, tc_data in tool_calls_buffered.items():
+            for tc_id, tc_data in turn_state.tool_calls_buffered.items():
                 args_str = "".join(tc_data["arguments_stream"])
                 try:
                     args = json.loads(args_str) if args_str else {}
@@ -366,8 +389,8 @@ class Agent:
                 })
                 
             # Save assistant tool call request to memory
-            assistant_content = "".join(content_accumulated)
-            assistant_thought = "".join(thoughts_accumulated)
+            assistant_content = "".join(turn_state.content_accumulated)
+            assistant_thought = "".join(turn_state.thoughts_accumulated)
             assistant_msg = {
                 "role": "assistant",
                 "tool_calls": tool_calls_to_run
