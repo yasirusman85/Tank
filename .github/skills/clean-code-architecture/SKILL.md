@@ -1,6 +1,6 @@
 ---
 name: clean-code-architecture
-description: Apply clean code and layered architecture principles when writing, reviewing, or refactoring Tank framework code. Activate when adding modules, restructuring packages, creating new classes, designing APIs, or when code feels "messy" or hard to follow.
+description: Apply clean code and layered architecture principles when writing, reviewing, or refactoring Tank framework code. Activate when adding modules, restructuring packages, creating new classes, designing APIs, or when code feels messy or hard to follow.
 license: MIT
 ---
 
@@ -35,7 +35,7 @@ Each module must do exactly one thing:
 | Module | Owns | Must NOT |
 |---|---|---|
 | `agents.py` | Execution loop, step yielding, memory I/O | Know about HTTP, SSE, or providers |
-| `llm.py` | Provider adapters, streaming normalization | Know about tools execution |
+| `llm.py` | Provider adapters, streaming normalization | Know about tool execution |
 | `tools.py` | Schema gen, docstring parsing, validation | Execute agent logic |
 | `routing.py` | Parse HTTP → extract prompt/session | Know about SSE format |
 | `response.py` | Format steps → SSE bytes | Parse requests |
@@ -47,11 +47,11 @@ Each module must do exactly one thing:
 ```python
 # Classes: PascalCase, descriptive noun
 class AgentStreamResponse: ...   # ✅
-class SSEResp: ...               # ❌ — abbreviation, unclear
+class SSEResp: ...               # ❌ abbreviation, unclear
 
 # Functions/methods: snake_case, verb-first
 def parse_docstring_params(): ...  # ✅
-def docstring(): ...               # ❌ — not a verb
+def docstring(): ...               # ❌ not a verb
 
 # Constants: UPPER_SNAKE_CASE
 MAX_ITERATIONS = 5  # ✅
@@ -71,20 +71,20 @@ AgentStep = Union[ThoughtStep, ToolCallStep, ...]  # ✅
   ```python
   class Agent:
       llm: LLM = LLM(provider="mock")   # class-level default
-      tools: List[Tool] = []
+      tools: list[Tool] = []
 
-      def __init__(self, llm=None, ...): # override at instantiation
+      def __init__(self, llm=None, ...):
           if llm is not None:
               self.llm = llm
   ```
-- **Never use mutable default arguments** — use `None` + override inside `__init__`.
-- **Favor composition over inheritance**. Subclass only for well-defined extension points (e.g., `Agent`, `LLM`, `BaseMemory`).
+- **Never use mutable default arguments** — use `None` and override inside `__init__`.
+- **Favor composition over inheritance**. Subclass only for well-defined extension points (e.g. `Agent`, `LLM`, `BaseMemory`).
 
 ---
 
 ## Function Design
 
-- **Keep functions short**: a function body should fit in ~25 lines. If it doesn't, extract a helper.
+- **Keep functions short**: a function body should fit in ~25 lines. Extract helpers if longer.
 - **One level of abstraction per function**: don't mix high-level orchestration with low-level byte manipulation.
 - **Avoid side effects** in parsing/transformation helpers (`parse_docstring_params` must be pure).
 - **Async consistency**: if a function calls `await`, the entire call chain must be `async`. Never use `asyncio.run()` inside a framework function.
@@ -157,7 +157,7 @@ from tank.ai.tools import Tool
 | Anti-pattern | Fix |
 |---|---|
 | `from tank import *` in module files | Use explicit named imports |
-| Hardcoding provider strings (e.g., `"openai"`) in multiple places | Define constants or an `Enum` |
+| Hardcoding provider strings (`"openai"`) in multiple places | Define constants or an `Enum` |
 | Logic inside `__init__.py` beyond imports | Keep `__init__.py` to re-exports only |
 | `print()` for logging | Use `logging` module or surface as step events |
 | Mixing sync and async code paths | Keep all I/O async end-to-end |

@@ -28,18 +28,18 @@ async def run(self, query, session_id="default"):
 
 ### Python 3.10+ Union Syntax
 
-Use `X | Y` syntax instead of `Union[X, Y]` for new code:
+Use `X | Y` instead of `Union[X, Y]` for new code:
 
 ```python
 # ✅ Modern (preferred for new code)
 def __init__(self, llm: LLM | None = None, tools: list[Tool] | None = None):
 
-# Still acceptable in existing code using typing module
-from typing import Union, Optional
+# Acceptable in existing code using typing module
+from typing import Optional
 def __init__(self, llm: Optional[LLM] = None):
 ```
 
-### Collection Types — Use `list`, `dict`, `tuple` Lowercase (Python 3.9+)
+### Collection Types — Use Lowercase (Python 3.9+)
 
 ```python
 # ✅
@@ -71,13 +71,13 @@ class ToolCallStep(BaseModel):
 
 class ToolResponseStep(BaseModel):
     name: str
-    result: Any   # Any is acceptable here — tool output is arbitrary
+    result: Any   # Any is acceptable — tool output is arbitrary
     id: str
 ```
 
-### Dynamic Model Creation via `create_model`
+### Dynamic Model Creation with `Field` Descriptions
 
-When building Pydantic models from function signatures (as in `Tool`), always inject `Field` with `description` when the docstring provides one:
+When building Pydantic models from function signatures (as in `Tool`), inject `Field` with `description` when the docstring provides one:
 
 ```python
 # ✅ With description from docstring
@@ -86,8 +86,8 @@ fields[param_name] = (param_type, Field(default=..., description=pdesc))
 # ✅ Without description
 fields[param_name] = (param_type, ...)
 
-# ❌ Raw tuple without Field when description is available
-fields[param_name] = (param_type, ...)  # misses the schema description
+# ❌ Missing Field when description is available
+fields[param_name] = (param_type, ...)  # loses the schema description
 ```
 
 ### Validating Tool Arguments
@@ -109,7 +109,7 @@ async def __call__(self, *args, **kwargs) -> Any:
 
 ## Type Aliases and Union Types
 
-Define `Union` type aliases for readability when used in multiple places:
+Define `Union` type aliases at module level for readability:
 
 ```python
 # ✅ Define once, reuse everywhere
@@ -124,7 +124,7 @@ async def run(self, ...) -> AsyncGenerator[Union[ThoughtStep, ToolCallStep, ...]
 
 ## `Any` Usage Policy
 
-`Any` is a type safety escape hatch. Restrict its use:
+`Any` is a type safety escape hatch. Use it sparingly:
 
 | Acceptable | Unacceptable |
 |---|---|
@@ -153,17 +153,17 @@ async def astream(
 
 ## Type Narrowing with `isinstance`
 
-Use `isinstance` checks for type narrowing — **never** use string comparisons on type names:
+Use `isinstance` for type narrowing — never string comparisons on type names:
 
 ```python
-# ✅ Correct: isinstance narrows the type for the type checker
+# ✅ isinstance narrows the type for static analysis
 async for chunk in llm_stream:
     if isinstance(chunk, LLMThoughtChunk):
         yield ThoughtStep(thought=chunk.thought)
     elif isinstance(chunk, LLMTokenChunk):
         yield TextTokenStep(token=chunk.token)
 
-# ❌ Wrong: string comparison bypasses static type analysis
+# ❌ Bypasses static type analysis
 if type(chunk).__name__ == "LLMThoughtChunk":
     ...
 ```
@@ -172,7 +172,7 @@ if type(chunk).__name__ == "LLMThoughtChunk":
 
 ## `TypeVar` for Generic Decorators
 
-When writing decorators that preserve the type of the decorated class (e.g., `agent_route`):
+When writing decorators that preserve the decorated class type (e.g. `agent_route`):
 
 ```python
 from typing import TypeVar, Type
@@ -181,7 +181,8 @@ T = TypeVar("T", bound=Type[Agent])
 
 def agent_route(self, path: str) -> Callable[[T], T]:
     def decorator(agent_cls: T) -> T:
-        ...
+        handler = create_agent_route_handler(agent_cls)
+        self.starlette_app.add_route(path, handler)
         return agent_cls
     return decorator
 ```
