@@ -57,21 +57,28 @@ class SimpleVectorStore(BaseVectorStore):
         if self.persist_path:
             self.save()
 
-    async def similarity_search(self, query: str, k: int = 4) -> List[Dict[str, Any]]:
+    async def similarity_search(self, query: str, k: int = 4, search_type: str = "similarity") -> List[Dict[str, Any]]:
         if not self.documents:
             return []
             
         query_vector = await self.embeddings.embed_query(query)
+        import re
+        query_terms = set(re.findall(r'\w+', query.lower()))
         
-        # Calculate cosine similarity: dot product of normalized vectors
+        # Calculate cosine similarity & keyword score
         scores: List[Tuple[float, Dict[str, Any]]] = []
         for doc in self.documents:
             doc_vector = doc["vector"]
-            # Cosine similarity formula: dot(A, B) / (norm(A) * norm(B))
-            # Since mock/openai embeddings are already normalized (l2 norm = 1.0),
-            # cosine similarity is simply the dot product!
-            dot_product = sum(q * d for q, d in zip(query_vector, doc_vector))
-            scores.append((dot_product, doc))
+            vector_score = sum(q * d for q, d in zip(query_vector, doc_vector))
+
+            if search_type == "hybrid" and query_terms:
+                doc_terms = set(re.findall(r'\w+', doc["text"].lower()))
+                keyword_score = len(query_terms.intersection(doc_terms)) / len(query_terms)
+                combined_score = (0.6 * vector_score) + (0.4 * keyword_score)
+            else:
+                combined_score = vector_score
+
+            scores.append((combined_score, doc))
             
         # Sort by score in descending order
         scores.sort(key=lambda x: x[0], reverse=True)
@@ -82,9 +89,10 @@ class SimpleVectorStore(BaseVectorStore):
             results.append({
                 "text": doc["text"],
                 "metadata": doc["metadata"],
-                "score": score
+                "score": round(score, 4)
             })
         return results
+
 
     def save(self) -> None:
         """Persist vector store to a JSON file."""
