@@ -39,6 +39,12 @@ from tank.ai.rag.retriever import Retriever
 from tank.ai.rag.splitters import RecursiveTextSplitter
 from tank.ai.rag.reranker import BaseReranker, SimpleReranker
 
+from tank.ai.browser import search_web, scrape_web_page
+from tank.ai.rag.connectors import ChromaVectorStore, PGVectorStore, QdrantVectorStore
+from tank.ai.graph import StateGraph, GraphAgent
+from tank.ai.guardrails import PIIMasker, PromptInjectionDetector, SafetyGuardrail
+from tank.ai.prompts import PromptTemplate, FewShotPrompt
+
 __all__ = [
     "__version__",
     "Tank",
@@ -73,10 +79,23 @@ __all__ = [
     "OpenAIEmbeddings",
     "BaseVectorStore",
     "SimpleVectorStore",
+    "ChromaVectorStore",
+    "PGVectorStore",
+    "QdrantVectorStore",
     "Retriever",
     "RecursiveTextSplitter",
     "BaseReranker",
     "SimpleReranker",
+    "search_web",
+    "scrape_web_page",
+    "StateGraph",
+    "GraphAgent",
+    "PIIMasker",
+    "PromptInjectionDetector",
+    "SafetyGuardrail",
+    "PromptTemplate",
+    "FewShotPrompt",
 ]
+
 
 
