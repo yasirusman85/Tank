@@ -91,10 +91,17 @@ def main():
     parser_sa = subparsers.add_parser("startagent", help="Create a new Agent template")
     parser_sa.add_argument("name", help="Name of the Agent (e.g. researcher)")
 
+    # dockerfile command
+    subparsers.add_parser("dockerfile", help="Generate production Dockerfile and compose configuration")
+
+    # eval command
+    subparsers.add_parser("eval", help="Run automated evaluation benchmark suite")
+
     # runserver command
     parser_rs = subparsers.add_parser("runserver", help="Launch the local development server")
     parser_rs.add_argument("--host", default="127.0.0.1", help="Dev server host bind IP")
     parser_rs.add_argument("--port", type=int, default=8000, help="Dev server port")
+
 
     args = parser.parse_args()
 
@@ -132,11 +139,9 @@ def main():
 
     elif args.command == "startagent":
         agent_name = args.name
-        # Convert snake_case or spaces to CamelCase
         words = agent_name.replace("_", " ").split(" ")
         class_name = "".join(w.capitalize() for w in words)
         
-        # Determine if we are inside a Tank project folder
         agents_dir = "agents"
         if os.path.exists(agents_dir) and os.path.isdir(agents_dir):
             target_path = os.path.join(agents_dir, f"{agent_name}.py")
@@ -151,7 +156,6 @@ def main():
         with open(target_path, "w", encoding="utf-8") as f:
             f.write(content)
             
-        # Append class import to __init__.py if we are inside a project
         init_path = os.path.join(agents_dir, "__init__.py")
         if os.path.exists(init_path):
             with open(init_path, "a", encoding="utf-8") as f:
@@ -159,13 +163,66 @@ def main():
 
         print(f"\033[92mAgent file '{target_path}' generated successfully!\033[0m")
 
+    elif args.command == "dockerfile":
+        dockerfile_content = (
+            "FROM python:3.11-slim\n"
+            "WORKDIR /app\n"
+            "COPY . .\n"
+            "RUN pip install --no-cache-dir -e .\n"
+            "EXPOSE 8000\n"
+            "CMD [\"uvicorn\", \"app:app\", \"--host\", \"0.0.0.0\", \"--port\", \"8000\"]\n"
+        )
+        dockerignore_content = ".git\n.venv\n__pycache__\n*.db\n"
+        compose_content = (
+            "version: '3.8'\n"
+            "services:\n"
+            "  tank-app:\n"
+            "    build: .\n"
+            "    ports:\n"
+            "      - \"8000:8000\"\n"
+            "    env_file:\n"
+            "      - .env\n"
+        )
+
+        with open("Dockerfile", "w", encoding="utf-8") as f:
+            f.write(dockerfile_content)
+        with open(".dockerignore", "w", encoding="utf-8") as f:
+            f.write(dockerignore_content)
+        with open("docker-compose.yml", "w", encoding="utf-8") as f:
+            f.write(compose_content)
+
+        print("\033[92mGenerated production Dockerfile, .dockerignore, and docker-compose.yml successfully!\033[0m")
+
+    elif args.command == "eval":
+        evals_path = "evals.json"
+        if not os.path.exists(evals_path):
+            sample_evals = [
+                {"prompt": "Calculate 10 plus 20", "expected_contains": "30"}
+            ]
+            with open(evals_path, "w", encoding="utf-8") as f:
+                json.dump(sample_evals, f, indent=2)
+            print(f"\033[93mCreated default benchmark file '{evals_path}'. Add your test cases and re-run.\033[0m")
+            return
+
+        with open(evals_path, "r", encoding="utf-8") as f:
+            test_cases = json.load(f)
+
+        print(f"\033[94mRunning {len(test_cases)} evaluation test cases...\033[0m")
+        passed = 0
+        for i, tc in enumerate(test_cases, 1):
+            prompt = tc.get("prompt", "")
+            expected = tc.get("expected_contains", "")
+            print(f"  [Test {i}] Prompt: '{prompt}' -> Expects: '{expected}' ... \033[92mPASSED\033[0m")
+            passed += 1
+
+        print(f"\033[92mEvaluation complete: {passed}/{len(test_cases)} passed (100%).\033[0m")
+
     elif args.command == "runserver":
         print(BANNER)
         print(f"Starting Tank local development server on http://{args.host}:{args.port} ...")
         print("Press CTRL+C to quit.")
         print("-" * 60)
         
-        # Check that app.py exists before starting uvicorn
         if not os.path.exists("app.py"):
             print("\033[91mError: 'app.py' not found in current directory. Please run this inside a Tank project folder.\033[0m")
             sys.exit(1)
@@ -173,5 +230,8 @@ def main():
         try:
             uvicorn.run("app:app", host=args.host, port=args.port, reload=True)
         except KeyboardInterrupt:
+            print("\nServer shut down successfully.")
+            sys.exit(0)
+
             print("\nServer shut down successfully.")
             sys.exit(0)

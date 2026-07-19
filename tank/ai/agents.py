@@ -36,8 +36,14 @@ class ApprovalRequiredStep(BaseModel):
     arguments: Dict[str, Any]
     id: str
 
+class HandoffStep(BaseModel):
+    target_agent: str
+    reason: str
+    session_id: str
+
 # Unified agent step type
-AgentStep = Union[ThoughtStep, ToolCallStep, ToolResponseStep, TextTokenStep, FinalResponseStep, ValidationErrorStep, ApprovalRequiredStep]
+AgentStep = Union[ThoughtStep, ToolCallStep, ToolResponseStep, TextTokenStep, FinalResponseStep, ValidationErrorStep, ApprovalRequiredStep, HandoffStep]
+
 
 
 @dataclass

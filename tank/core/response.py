@@ -17,6 +17,7 @@ from tank.ai.agents import (
     FinalResponseStep,
     ValidationErrorStep,
     ApprovalRequiredStep,
+    HandoffStep,
 )
 
 
@@ -76,6 +77,14 @@ def _(step: ApprovalRequiredStep) -> SSEEvent:
     return SSEEvent(
         name="approval_required",
         data={"tool_name": step.tool_name, "arguments": step.arguments, "id": step.id},
+    )
+
+
+@_step_to_event.register
+def _(step: HandoffStep) -> SSEEvent:
+    return SSEEvent(
+        name="handoff",
+        data={"target_agent": step.target_agent, "reason": step.reason, "session_id": step.session_id},
     )
 
 
